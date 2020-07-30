@@ -6,6 +6,7 @@ import net.corda.core.contracts.LinearState
 import net.corda.core.contracts.UniqueIdentifier
 import net.corda.core.identity.AbstractParty
 import net.corda.core.identity.Party
+import net.corda.core.serialization.CordaSerializable
 import java.time.LocalDate
 import java.util.*
 
@@ -14,10 +15,14 @@ class ToDoItem(
         val assignedBy: Party,
         val assignedTo: Party,
         val taskDescription: String,
+        val status: Status = Status.OPEN,
         val deadLine: LocalDate? = null,
         override val linearId: UniqueIdentifier = UniqueIdentifier(id = UUID.randomUUID())
 ) : LinearState {
     val dateOfCreation: LocalDate = LocalDate.now()
+
+    @CordaSerializable
+    enum class Status { OPEN, CLOSED }
 
     /**
      * A _participant_ is any party that should be notified when the state is created or consumed.
@@ -32,5 +37,5 @@ class ToDoItem(
     override val participants: List<AbstractParty>
         get() = listOf(assignedTo, assignedBy)
 
-    override fun toString() = "ToDoItem $linearId: \"$taskDescription\" assigned to $assignedTo by $assignedBy"
+    override fun toString() = "ToDoItem $linearId: [$status] \"$taskDescription\" assigned to $assignedTo by $assignedBy"
 }

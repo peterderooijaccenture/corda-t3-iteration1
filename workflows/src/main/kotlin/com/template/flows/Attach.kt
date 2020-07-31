@@ -4,6 +4,7 @@ import co.paralleluniverse.fibers.Suspendable
 import com.template.contracts.ToDoItemContract
 import com.template.states.ToDoItem
 import net.corda.core.contracts.UniqueIdentifier
+import net.corda.core.crypto.SecureHash
 import net.corda.core.flows.*
 import net.corda.core.node.services.queryBy
 import net.corda.core.node.services.vault.QueryCriteria
@@ -12,10 +13,11 @@ import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.ProgressTracker
 import net.corda.core.utilities.ProgressTracker.Step
 import java.io.BufferedInputStream
+import java.io.IOException
 import java.net.URL
 
-@StartableByRPC
 @InitiatingFlow
+@StartableByRPC
 class AttachFlow(
         private val linearId: UniqueIdentifier,
         private val file: String,   // e.g., "file:<path to ZIP from node root directory>"
@@ -51,15 +53,13 @@ class AttachFlow(
     @Suspendable
     override fun call(): ToDoItem {
         progressTracker.currentStep = IMPORT_ATTACHMENT
-        val inputStream = BufferedInputStream(URL(file).openStream())
-        val attachmentId = serviceHub.attachments.importAttachment(inputStream, uploader, file)
-        inputStream.close()
+        val attachmentId: SecureHash = importAttachment()
 
         progressTracker.currentStep = GET_TODO
         val queryCriteria = QueryCriteria.LinearStateQueryCriteria(linearId = listOf(linearId))
         val inputState = serviceHub.vaultService.queryBy<ToDoItem>(queryCriteria).states.single()
         val inputItem = inputState.state.data
-        val toDoItem = inputState.state.data.withAttachment(attachmentId)
+        val outputItem = inputItem.withAttachment(attachmentId)
 
         progressTracker.currentStep = BUILD_TRANSACTION
         val notary = serviceHub.networkMapCache.notaryIdentities.first()
@@ -67,9 +67,10 @@ class AttachFlow(
                 .addInputState(inputState)
                 .addCommand(
                         data = ToDoItemContract.Commands.Attach(),
-                        keys = listOf(inputItem.assignedTo.owningKey, inputItem.assignedBy.owningKey).distinct()
+                        keys = inputItem.participants.distinct().map { it.owningKey }
+                        //listOf(inputItem.assignedTo.owningKey, inputItem.assignedBy.owningKey).distinct()
                 )
-                .addOutputState(toDoItem)
+                .addOutputState(outputItem)
                 .addAttachment(attachmentId)
 
         progressTracker.currentStep = VERIFY_TRANSACTION
@@ -91,7 +92,21 @@ class AttachFlow(
             progressTracker.currentStep = FINALISE
             subFlow(FinalityFlow(counterSignedTransaction, listOf(session), FINALISE.childProgressTracker()))
         }
-        return toDoItem
+        return outputItem
+    }
+
+    private fun importAttachment(): SecureHash {
+        var inputStream: BufferedInputStream? = null
+        try {
+            inputStream = BufferedInputStream(URL(file).openStream())
+            return serviceHub.attachments.importAttachment(inputStream, uploader, file)
+        }
+        catch (exception: Exception) {
+            throw IllegalArgumentException(exception.message, exception)
+        }
+        finally {
+            inputStream?.close()
+        }
     }
 }
 
@@ -103,7 +118,6 @@ class AttachFlowResponder(val session: FlowSession) : FlowLogic<Unit>() {
             return
 
         val signTransactionFlow = object : SignTransactionFlow(session) {
-            @Suspendable
             override fun checkTransaction(stx: SignedTransaction) {
                 println("accepting attachment in ToDoItem ${stx.tx.outputsOfType<ToDoItem>().single()}")
             }

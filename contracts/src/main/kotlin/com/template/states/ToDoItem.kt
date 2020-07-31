@@ -30,7 +30,7 @@ class ToDoItem(
         get() = listOf(assignedTo, assignedBy)
 
     override fun toString() = "ToDoItem $linearId: [$status] \"$task\" assigned to $assignedTo by $assignedBy" +
-            (if (attachmentId!= null) "attachment: $attachmentId" else "")
+            (if (attachmentId!= null) "; attachment: $attachmentId" else "")
 
     fun withAssignee(assignee: Party) = ToDoItem(
             assignedBy = this.assignedTo,
@@ -43,7 +43,7 @@ class ToDoItem(
     )
 
     fun withDeadline(deadline: LocalDate) = ToDoItem(
-            assignedBy = this.assignedTo,
+            assignedBy = this.assignedBy,
             assignedTo = this.assignedTo,
             task = this.task,
             deadline = deadline,
